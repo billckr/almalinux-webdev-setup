@@ -1,8 +1,9 @@
 #!/bin/bash
 
 # AlmaLinux Web Development Environment Setup Script
-# Run with: curl -sSL https://raw.githubusercontent.com/yourusername/repo/main/setup.sh | bash
-# Or: wget -O setup.sh https://raw.githubusercontent.com/yourusername/repo/main/setup.sh && chmod +x setup.sh && ./setup.sh
+# Run with: curl -sSL https://raw.githubusercontent.com/billckr/almalinux-webdev-setup/main/almaLinux-setup.sh | sudo bash
+# Or: wget -O setup.sh https://raw.githubusercontent.com/billckr/almalinux-webdev-setup/main/almaLinux-setup.sh && chmod +x setup.sh && sudo ./setup.sh
+
 
 set -e
 
@@ -72,157 +73,6 @@ prompt_password() {
         fi
     done
 }
-
-# Check if running as root
-if [ "$EUID" -ne 0 ]; then
-    print_error "Please run as root (use sudo)"
-    exit 1
-fi
-
-# Welcome message
-print_header "AlmaLinux Web Development Environment Setup"
-echo "This script will install and configure:"
-echo "- Apache, Nginx, MySQL, PostgreSQL"
-echo "- PHP 8.2, Python, Node.js, Git"
-echo "- Redis, Docker, Fail2ban"
-echo "- Development tools and packages"
-echo
-
-# Collect user inputs
-print_header "Configuration Setup"
-
-# Get external IP automatically and confirm
-DETECTED_IP=$(curl -s ifconfig.me || echo "")
-if [ -n "$DETECTED_IP" ]; then
-    prompt_input "Your external IP address (detected: $DETECTED_IP)" EXTERNAL_IP "$DETECTED_IP"
-else
-    prompt_input "Your external IP address" EXTERNAL_IP
-fi
-
-# Domain name (optional)
-prompt_input "Domain name (optional, press enter to skip)" DOMAIN_NAME ""
-
-# Database passwords
-prompt_password "MySQL root password" MYSQL_ROOT_PASSWORD
-prompt_password "PostgreSQL postgres user password" POSTGRES_PASSWORD
-
-# Git configuration
-prompt_input "Git username" GIT_USERNAME
-prompt_input "Git email" GIT_EMAIL
-
-# Confirmation
-echo
-print_header "Configuration Summary"
-echo "External IP: $EXTERNAL_IP"
-echo "Domain: ${DOMAIN_NAME:-"Not set"}"
-echo "Git User: $GIT_USERNAME <$GIT_EMAIL>"
-echo
-read -p "Continue with installation? (y/N): " confirm
-if [[ ! $confirm =~ ^[Yy]$ ]]; then
-    print_error "Installation cancelled"
-    exit 1
-fi
-
-# Start installation
-print_header "Starting Installation"
-
-# Update system
-print_status "Updating system packages..."
-dnf update -y
-
-# Install EPEL and Remi repositories
-print_status "Installing repositories..."
-dnf install epel-release -y
-dnf install https://rpms.remirepo.net/enterprise/remi-release-9.rpm -y
-
-# Install PostgreSQL repository
-print_status "Adding PostgreSQL repository..."
-dnf install https://download.postgresql.org/pub/repos/yum/reporpms/EL-9-x86_64/pgdg-redhat-repo-latest.noarch.rpm -y
-
-# Install Node.js repository
-print_status "Adding Node.js repository..."
-curl -fsSL https://rpm.nodesource.com/setup_lts.x | bash -
-
-# Install Docker repository
-print_status "Adding Docker repository..."
-dnf config-manager --add-repo https://download.docker.com/linux/centos/docker-ce.repo
-
-# Install VS Code repository
-print_status "Adding VS Code repository..."
-rpm --import https://packages.microsoft.com/keys/microsoft.asc
-cat > /etc/yum.repos.d/vscode.repo << EOF
-[code]
-name=Visual Studio Code
-baseurl=https://packages.microsoft.com/yumrepos/vscode
-enabled=1
-gpgcheck=1
-gpgkey=https://packages.microsoft.com/keys/microsoft.asc
-EOF
-
-# Install MongoDB repository
-print_status "Adding MongoDB repository..."
-cat > /etc/yum.repos.d/mongodb-org-7.0.repo << EOF
-[mongodb-org-7.0]
-name=MongoDB Repository
-baseurl=https://repo.mongodb.org/yum/redhat/9/mongodb-org/7.0/x86_64/
-gpgcheck=1
-enabled=1
-gpgkey=https://pgp.mongodb.com/server-7.0.asc
-EOF
-
-# Install main packages
-print_status "Installing core packages..."
-dnf install -y \
-    httpd nginx mysql-server \
-    postgresql16-server postgresql16 postgresql16-contrib \
-    python3 python3-pip python3-devel \
-    nodejs git redis \
-    docker-ce docker-ce-cli containerd.io docker-compose-plugin \
-    mongodb-org \
-    code vim neovim \
-    htop curl wget zip unzip tree \
-    fail2ban certbot python3-certbot-apache python3-certbot-nginx \
-    openssl openssl-devel \
-    git-lfs gh
-
-# Install PHP 8.2
-print_status "Installing PHP 8.2..."
-dnf module reset php -y
-dnf module enable php:remi-8.2 -y
-dnf install -y php php-cli php-fpm php-mysqlnd php-pgsql php-zip \
-    php-devel php-gd php-mbstring php-curl php-xml php-pear \
-    php-bcmath php-json php-opcache php-redis
-
-# Initialize PostgreSQL
-print_status "Initializing PostgreSQL..."
-/usr/pgsql-16/bin/postgresql-16-setup initdb
-
-# Start and enable services
-print_status "Starting services..."
-systemctl enable --now httpd nginx mysqld postgresql-16 redis php-fpm docker mongod fail2ban
-systemctl start httpd nginx mysqld postgresql-16 redis php-fpm docker mongod fail2ban
-
-# Add user to docker group
-print_status "Configuring Docker permissions..."
-usermod -aG docker $SUDO_USER 2>/dev/null || true
-
-# Configure firewall
-print_status "Configuring firewall..."
-firewall-cmd --permanent --add-service=http
-firewall-cmd --permanent --add-service=https
-firewall-cmd --permanent --add-service=ssh
-firewall-cmd --reload
-
-# Configure MySQL
-print_status "Configuring MySQL..."
-mysql -e "ALTER USER 'root'@'localhost' IDENTIFIED BY '$MYSQL_ROOT_PASSWORD';" 2>/dev/null || true
-mysql -u root -p"$MYSQL_ROOT_PASSWORD" -e "DELETE FROM mysql.user WHERE User='';" 2>/dev/null || true
-mysql -u root -p"$MYSQL_ROOT_PASSWORD" -e "DROP DATABASE IF EXISTS test;" 2>/dev/null || true
-mysql -u root -p"$MYSQL_ROOT_PASSWORD" -e "FLUSH PRIVILEGES;" 2>/dev/null || true
-
-# Configure PostgreSQL
-print_status "Configuring PostgreSQL..."
-sudo -u postgres psql -c "ALTER USER postgres PASSWORD '$POSTGRES_PASSWORD';"
 
 # Function to check and find log paths
 check_log_paths() {
@@ -393,16 +243,197 @@ wait_for_services() {
     mysql -u root -p"$MYSQL_ROOT_PASSWORD" -e "SELECT 1;" >/dev/null 2>&1 || true
 }
 
-# Call the validation functions before configuring fail2ban
+# Check if running as root
+if [ "$EUID" -ne 0 ]; then
+    print_error "Please run as root (use sudo)"
+    exit 1
+fi
+
+# Welcome message
+print_header "AlmaLinux Web Development Environment Setup"
+echo "This script will install and configure:"
+echo "- Apache, Nginx, MySQL, PostgreSQL"
+echo "- PHP 8.2, Python, Node.js, Git"
+echo "- Redis, Docker, Fail2ban"
+echo "- Development tools and packages"
+echo
+
+# Collect user inputs
+print_header "Configuration Setup"
+
+# Get external IP automatically and confirm
+DETECTED_IP=$(curl -s ifconfig.me || echo "")
+if [ -n "$DETECTED_IP" ]; then
+    prompt_input "Your external IP address (detected: $DETECTED_IP)" EXTERNAL_IP "$DETECTED_IP"
+else
+    prompt_input "Your external IP address" EXTERNAL_IP
+fi
+
+# Domain name (optional)
+prompt_input "Domain name (optional, press enter to skip)" DOMAIN_NAME ""
+
+# Database passwords
+prompt_password "MySQL root password" MYSQL_ROOT_PASSWORD
+prompt_password "PostgreSQL postgres user password" POSTGRES_PASSWORD
+
+# Git configuration
+prompt_input "Git username" GIT_USERNAME
+prompt_input "Git email" GIT_EMAIL
+
+# Confirmation
+echo
+print_header "Configuration Summary"
+echo "External IP: $EXTERNAL_IP"
+echo "Domain: ${DOMAIN_NAME:-"Not set"}"
+echo "Git User: $GIT_USERNAME <$GIT_EMAIL>"
+echo
+read -p "Continue with installation? (y/N): " confirm
+if [[ ! $confirm =~ ^[Yy]$ ]]; then
+    print_error "Installation cancelled"
+    exit 1
+fi
+
+# Start installation
+print_header "Starting Installation"
+
+# Phase 1: System Update and Repository Setup
+print_header "Phase 1: System Update & Repository Setup"
+
+print_status "Updating system packages..."
+dnf update -y
+
+print_status "Installing EPEL repository..."
+dnf install epel-release -y
+
+print_status "Installing Remi repository for PHP..."
+dnf install https://rpms.remirepo.net/enterprise/remi-release-9.rpm -y
+
+print_status "Adding PostgreSQL repository..."
+dnf install https://download.postgresql.org/pub/repos/yum/reporpms/EL-9-x86_64/pgdg-redhat-repo-latest.noarch.rpm -y
+
+print_status "Adding Node.js repository..."
+curl -fsSL https://rpm.nodesource.com/setup_lts.x | bash -
+
+print_status "Adding Docker repository..."
+dnf config-manager --add-repo https://download.docker.com/linux/centos/docker-ce.repo
+
+print_status "Adding VS Code repository..."
+rpm --import https://packages.microsoft.com/keys/microsoft.asc
+cat > /etc/yum.repos.d/vscode.repo << EOF
+[code]
+name=Visual Studio Code
+baseurl=https://packages.microsoft.com/yumrepos/vscode
+enabled=1
+gpgcheck=1
+gpgkey=https://packages.microsoft.com/keys/microsoft.asc
+EOF
+
+print_status "Adding MongoDB repository..."
+cat > /etc/yum.repos.d/mongodb-org-7.0.repo << EOF
+[mongodb-org-7.0]
+name=MongoDB Repository
+baseurl=https://repo.mongodb.org/yum/redhat/9/mongodb-org/7.0/x86_64/
+gpgcheck=1
+enabled=1
+gpgkey=https://pgp.mongodb.com/server-7.0.asc
+EOF
+
+# Phase 2: Core Package Installation
+print_header "Phase 2: Core Package Installation"
+
+print_status "Installing system tools and utilities..."
+dnf install -y htop curl wget zip unzip tree git git-lfs gh \
+    openssl openssl-devel vim neovim
+
+print_status "Installing web servers..."
+dnf install -y httpd nginx
+
+print_status "Installing databases..."
+dnf install -y mysql-server postgresql16-server postgresql16 postgresql16-contrib \
+    redis mongodb-org
+
+print_status "Installing Python and development tools..."
+dnf install -y python3 python3-pip python3-devel
+
+print_status "Installing Node.js..."
+dnf install -y nodejs
+
+print_status "Installing Docker..."
+dnf install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin
+
+print_status "Installing development tools..."
+dnf install -y code
+
+print_status "Installing security and SSL tools..."
+dnf install -y fail2ban certbot python3-certbot-apache python3-certbot-nginx
+
+# Phase 3: PHP Installation and Configuration
+print_header "Phase 3: PHP Installation"
+
+print_status "Installing PHP 8.2..."
+dnf module reset php -y
+dnf module enable php:remi-8.2 -y
+dnf install -y php php-cli php-fpm php-mysqlnd php-pgsql php-zip \
+    php-devel php-gd php-mbstring php-curl php-xml php-pear \
+    php-bcmath php-json php-opcache php-redis
+
+# Phase 4: Service Initialization
+print_header "Phase 4: Service Initialization"
+
+print_status "Initializing PostgreSQL database..."
+/usr/pgsql-16/bin/postgresql-16-setup initdb
+
+print_status "Enabling services for auto-start..."
+systemctl enable httpd nginx mysqld postgresql-16 redis php-fpm docker mongod
+
+print_status "Starting core services..."
+systemctl start httpd nginx mysqld postgresql-16 redis php-fpm docker mongod
+
+# Add user to docker group
+print_status "Configuring Docker permissions..."
+usermod -aG docker $SUDO_USER 2>/dev/null || true
+
+# Phase 5: Firewall Configuration
+print_header "Phase 5: Firewall Configuration"
+
+print_status "Configuring firewall rules..."
+firewall-cmd --permanent --add-service=http
+firewall-cmd --permanent --add-service=https
+firewall-cmd --permanent --add-service=ssh
+firewall-cmd --reload
+
+# Phase 6: Database Configuration
+print_header "Phase 6: Database Configuration"
+
+print_status "Securing MySQL installation..."
+# Set root password and remove anonymous users
+mysql -e "ALTER USER 'root'@'localhost' IDENTIFIED BY '$MYSQL_ROOT_PASSWORD';" 2>/dev/null || true
+mysql -u root -p"$MYSQL_ROOT_PASSWORD" -e "DELETE FROM mysql.user WHERE User='';" 2>/dev/null || true
+mysql -u root -p"$MYSQL_ROOT_PASSWORD" -e "DROP DATABASE IF EXISTS test;" 2>/dev/null || true
+mysql -u root -p"$MYSQL_ROOT_PASSWORD" -e "FLUSH PRIVILEGES;" 2>/dev/null || true
+
+print_status "Configuring PostgreSQL..."
+sudo -u postgres psql -c "ALTER USER postgres PASSWORD '$POSTGRES_PASSWORD';"
+
+# Phase 7: Wait for Services and Log Files
+print_header "Phase 7: Service Stabilization"
+
+print_status "Waiting for services to fully start and create log files..."
+sleep 10
+
+# Generate some activity to ensure log files are created
+systemctl status httpd mysqld postgresql-16 >/dev/null 2>&1 || true
+mysql -u root -p"$MYSQL_ROOT_PASSWORD" -e "SELECT 1;" >/dev/null 2>&1 || true
+
+# Phase 8: Fail2ban Installation and Configuration
+print_header "Phase 8: Security Configuration (Fail2ban)"
+
+print_status "Starting Fail2ban service..."
+systemctl start fail2ban
+
+# Validate log paths and filters before configuration
 check_log_paths
 validate_fail2ban_filters
-
-# Configure services first, then wait, then configure fail2ban
-print_status "Services started, waiting for log files to be created..."
-wait_for_services
-
-# Re-check log paths after services have started
-check_log_paths
 
 # Configure fail2ban with validated paths and filters
 configure_fail2ban
@@ -428,18 +459,21 @@ else
     cat /etc/fail2ban/jail.local
 fi
 
-# Install global npm packages
+# Phase 9: Development Tools Installation
+print_header "Phase 9: Development Tools Installation"
+
 print_status "Installing global npm packages..."
 npm install -g yarn pnpm @angular/cli create-react-app typescript ts-node \
     nodemon pm2 eslint prettier webpack-cli vite vue-cli
 
-# Install Composer
-print_status "Installing Composer..."
+print_status "Installing Composer for PHP..."
 curl -sS https://getcomposer.org/installer | php
 mv composer.phar /usr/local/bin/composer
 chmod +x /usr/local/bin/composer
 
-# Configure Git
+# Phase 10: Git and User Configuration
+print_header "Phase 10: User Configuration"
+
 print_status "Configuring Git..."
 if [ -n "$SUDO_USER" ]; then
     sudo -u $SUDO_USER git config --global user.name "$GIT_USERNAME"
@@ -454,16 +488,17 @@ git config --global user.email "$GIT_EMAIL"
 git config --global init.defaultBranch main
 git lfs install
 
-# Create PHP info file
-print_status "Creating PHP info file..."
+# Phase 11: Web Content and Permissions
+print_header "Phase 11: Web Server Content Setup"
+
+print_status "Creating web content..."
 echo "<?php phpinfo(); ?>" > /var/www/html/info.php
 
-# Set permissions
-print_status "Setting permissions..."
+print_status "Setting web directory permissions..."
 chown -R apache:apache /var/www/html/
 chmod -R 755 /var/www/html/
 
-# Create a simple index.html
+print_status "Creating landing page..."
 cat > /var/www/html/index.html << EOF
 <!DOCTYPE html>
 <html>
